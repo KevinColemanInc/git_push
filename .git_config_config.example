@@ -1,0 +1,2 @@
+allowed_origin: https://gitlab.com/KevinColemanInc/test-ruby-git.git
+delete_code: true
